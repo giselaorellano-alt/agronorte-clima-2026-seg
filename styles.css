@@ -397,6 +397,14 @@ h1, h2, h3 { font-weight: 600; margin: 0; color: var(--text-default); }
 
 .empty-note { color: var(--text-lighter); font-size: 13px; padding: 8px 0; }
 
+.cross-controls { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+.cross-dim { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1 1 320px; }
+.cross-dim .value-select:first-of-type { flex: 0 0 160px; max-width: 160px; }
+.cross-dim .value-picker { flex: 1 1 240px; }
+.cross-result { min-height: 40px; }
+.cross-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.cross-compare { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+
 @media (max-width: 520px) {
   .bar-row { grid-template-columns: 1fr; gap: 4px; }
   .bar-row .bar-value { text-align: left; }

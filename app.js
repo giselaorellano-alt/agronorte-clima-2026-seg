@@ -661,6 +661,150 @@
     renderRankTable();
   }
 
+  // ---- Cruce de segmentaciones (dos dimensiones a la vez) ----
+  var crossState = { dimA: 'Departamento', dimB: 'DIVISION', valA: null, valB: null };
+
+  function crossDimOptions(excludeDim) {
+    return dimList().filter(function (d) { return d !== 'General' && d !== excludeDim; });
+  }
+
+  function findCombo(dimA, valA, dimB, valB) {
+    var list = DATA.combinations || [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      if (c.dimA === dimA && c.valA === valA && c.dimB === dimB && c.valB === valB) return c;
+      if (c.dimA === dimB && c.valA === valB && c.dimB === dimA && c.valB === valA) return c;
+    }
+    return null;
+  }
+
+  function populateCrossValue(which) {
+    var dimKey = which === 'A' ? 'dimA' : 'dimB';
+    var valKey = which === 'A' ? 'valA' : 'valB';
+    var select = document.getElementById('crossVal' + which);
+    var search = document.getElementById('crossVal' + which + 'Search');
+    var items = (DATA.dimensions[crossState[dimKey]] || []).slice();
+
+    function populate(filterText) {
+      select.innerHTML = '';
+      select.appendChild(el('option', { value: '' }, [document.createTextNode('— Seleccionar (' + items.length + ') —')]));
+      items
+        .filter(function (it) { return !filterText || it.value.toLowerCase().indexOf(filterText.toLowerCase()) !== -1; })
+        .forEach(function (it) {
+          select.appendChild(el('option', { value: it.value }, [document.createTextNode(it.value)]));
+        });
+      select.value = crossState[valKey] || '';
+    }
+    populate('');
+    search.value = '';
+    search.oninput = function () { populate(search.value); };
+    select.onchange = function () {
+      crossState[valKey] = select.value || null;
+      renderCrossResult();
+    };
+  }
+
+  function renderCrossControls() {
+    var selA = document.getElementById('crossDimA');
+    var selB = document.getElementById('crossDimB');
+    if (!selA || !selB) return;
+
+    selA.innerHTML = '';
+    crossDimOptions(crossState.dimB).forEach(function (d) {
+      selA.appendChild(el('option', { value: d }, [document.createTextNode(dimLabel(d))]));
+    });
+    selA.value = crossState.dimA;
+
+    selB.innerHTML = '';
+    crossDimOptions(crossState.dimA).forEach(function (d) {
+      selB.appendChild(el('option', { value: d }, [document.createTextNode(dimLabel(d))]));
+    });
+    selB.value = crossState.dimB;
+
+    populateCrossValue('A');
+    populateCrossValue('B');
+
+    selA.onchange = function () {
+      crossState.dimA = selA.value;
+      if (crossState.dimA === crossState.dimB) {
+        crossState.dimB = crossDimOptions(crossState.dimA)[0];
+      }
+      crossState.valA = null;
+      renderCrossControls();
+      renderCrossResult();
+    };
+    selB.onchange = function () {
+      crossState.dimB = selB.value;
+      if (crossState.dimB === crossState.dimA) {
+        crossState.dimA = crossDimOptions(crossState.dimB)[0];
+      }
+      crossState.valB = null;
+      renderCrossControls();
+      renderCrossResult();
+    };
+  }
+
+  function renderCrossResult() {
+    var box = document.getElementById('crossResult');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!crossState.valA || !crossState.valB) {
+      box.appendChild(el('div', { class: 'empty-note', text: 'Elegí un valor para cada dimensión para ver el cruce.' }));
+      return;
+    }
+    var title = dimLabel(crossState.dimA) + ': ' + crossState.valA + '  ×  ' + dimLabel(crossState.dimB) + ': ' + crossState.valB;
+    var combo = findCombo(crossState.dimA, crossState.valA, crossState.dimB, crossState.valB);
+
+    if (!combo) {
+      box.appendChild(el('div', { class: 'cross-title', text: title }));
+      box.appendChild(el('div', { class: 'empty-note', text: 'No hay suficientes personas en este cruce específico para mostrar datos (mínimo ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas), o la combinación no está disponible.' }));
+      return;
+    }
+
+    var b = band(combo.favorabilidad_total);
+    var enpsCell = (combo.byTopic && combo.byTopic.eNPS) || {};
+    var enpsVal = enpsCell.favorabilidad !== undefined ? enpsCell.favorabilidad : null;
+    var p = combo.participacion || {};
+
+    box.appendChild(el('div', { class: 'panel-head' }, [
+      el('h3', { class: 'cross-title', text: title }),
+      el('span', { class: 'badge ' + b.cls, text: b.label })
+    ]));
+
+    var kpis = el('div', { class: 'selection-kpis' });
+    kpis.appendChild(el('div', { class: 'kpi-card' }, [
+      el('div', { class: 'kpi-label', text: 'Favorabilidad' }),
+      el('div', { class: 'kpi-value', text: fmtPct(combo.favorabilidad_total) })
+    ]));
+    kpis.appendChild(el('div', { class: 'kpi-card' }, [
+      el('div', { class: 'kpi-label', text: 'eNPS' }),
+      el('div', { class: 'kpi-value', text: enpsVal === null ? '—' : fmtPct(enpsVal) })
+    ]));
+    kpis.appendChild(el('div', { class: 'kpi-card' }, [
+      el('div', { class: 'kpi-label', text: 'Participación' }),
+      el('div', { class: 'kpi-value', text: fmtPct(p.tasa) }),
+      el('div', { class: 'kpi-sub', text: fmtInt(p.respondieron) + ' de ' + fmtInt(p.asignados) + ' invitados' })
+    ]));
+    kpis.appendChild(el('div', { class: 'kpi-card' }, [
+      el('div', { class: 'kpi-label', text: 'Respuestas analizadas' }),
+      el('div', { class: 'kpi-value', text: fmtInt(combo.n_users) })
+    ]));
+    box.appendChild(kpis);
+
+    box.appendChild(buildSegTrack({
+      favorabilidad: combo.favorabilidad_total,
+      negativo: combo.negativo_total,
+      neutral: combo.neutral_total
+    }, false));
+
+    var entryA = (DATA.dimensions[crossState.dimA] || []).filter(function (it) { return it.value === crossState.valA; })[0];
+    var entryB = (DATA.dimensions[crossState.dimB] || []).filter(function (it) { return it.value === crossState.valB; })[0];
+    var compareBox = el('div', { class: 'cross-compare' });
+    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimA) + ' "' + crossState.valA + '" sola (todas las combinaciones): ' + fmtPct(entryA ? entryA.favorabilidad_total : null) }));
+    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimB) + ' "' + crossState.valB + '" sola (todas las combinaciones): ' + fmtPct(entryB ? entryB.favorabilidad_total : null) }));
+    box.appendChild(compareBox);
+  }
+
   function init(data) {
     DATA = data;
     document.getElementById('instanceName').textContent = data.meta.instanceName;
@@ -684,6 +828,8 @@
     onFilterChange();
     renderQuestions('');
     renderComentarios();
+    renderCrossControls();
+    renderCrossResult();
   }
 
   Promise.all([

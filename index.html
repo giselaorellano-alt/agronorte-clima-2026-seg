@@ -56,6 +56,32 @@
     <div class="selection-kpis" id="selectionKpis"></div>
   </section>
 
+  <section class="panel cross-panel" aria-label="Cruce de segmentaciones">
+    <div class="panel-head">
+      <h2>Cruce de segmentaciones</h2>
+      <span class="hint">Elegí dos dimensiones para ver favorabilidad, eNPS y participación combinadas para ese grupo específico</span>
+    </div>
+    <div class="cross-controls">
+      <div class="cross-dim">
+        <span class="filters-label">Dimensión A:</span>
+        <select id="crossDimA" class="value-select"></select>
+        <div class="value-picker">
+          <input type="text" id="crossValASearch" class="value-search" placeholder="Buscar valor..." autocomplete="off">
+          <select id="crossValA" class="value-select"></select>
+        </div>
+      </div>
+      <div class="cross-dim">
+        <span class="filters-label">Dimensión B:</span>
+        <select id="crossDimB" class="value-select"></select>
+        <div class="value-picker">
+          <input type="text" id="crossValBSearch" class="value-search" placeholder="Buscar valor..." autocomplete="off">
+          <select id="crossValB" class="value-select"></select>
+        </div>
+      </div>
+    </div>
+    <div id="crossResult" class="cross-result"></div>
+  </section>
+
   <section class="grid-2col">
     <div class="panel" aria-label="Favorabilidad por dimensión de clima">
       <div class="panel-head">
