@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Encuesta de Clima 2026 · Agronorte</title>
+<meta name="description" content="Reporte de resultados de la Encuesta de Clima 2026 de Agronorte, segmentado por departamento, jefe directo y otras segmentaciones.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="assets/agronorte-logo.png">
+<script src="assets/vendor/html2canvas.min.js"></script>
+<script src="assets/vendor/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img class="brand-mark" src="assets/agronorte-logo.png" alt="Agronorte" aria-hidden="true">
+      <div>
+        <div class="brand-title">Encuesta de Clima · FY26</div>
+        <div class="brand-subtitle" id="instanceName">Agronorte Oficial</div>
+      </div>
+    </div>
+    <div class="topbar-meta" id="topbarMeta"></div>
+  </div>
+</header>
+
+<main class="page">
+
+  <section class="kpis" id="kpiRow" aria-label="Indicadores generales"></section>
+
+  <section class="filters" aria-label="Filtros de segmentación">
+    <div class="filters-row">
+      <span class="filters-label">Ver por:</span>
+      <div class="chip-group" id="dimChips" role="tablist"></div>
+    </div>
+    <div class="filters-row" id="valueRow" hidden>
+      <span class="filters-label" id="valueLabel">Valor:</span>
+      <div class="value-picker">
+        <input type="text" id="valueSearch" class="value-search" placeholder="Buscar..." autocomplete="off">
+        <select id="valueSelect" class="value-select" size="1"></select>
+      </div>
+      <button class="btn-clear" id="btnClearFilter" type="button">Ver todos / Volver a General</button>
+    </div>
+  </section>
+
+  <section class="panel" id="selectionPanel" aria-label="Resultado de la selección" hidden>
+    <div class="panel-head">
+      <h2 id="selectionTitle">—</h2>
+      <span class="badge" id="selectionBadge"></span>
+      <button class="btn-download" id="btnDownloadPdf" type="button">⬇ Descargar PDF</button>
+    </div>
+    <div class="selection-kpis" id="selectionKpis"></div>
+  </section>
+
+  <section class="grid-2col">
+    <div class="panel" aria-label="Favorabilidad por dimensión de clima">
+      <div class="panel-head">
+        <h2>Favorabilidad por dimensión</h2>
+        <span class="hint" id="topicHint">General</span>
+        <button class="btn-download" id="btnDownloadTopics" type="button">⬇ Descargar PDF</button>
+      </div>
+      <div class="bars" id="topicBars"></div>
+    </div>
+
+    <div class="panel" aria-label="Ranking dentro del filtro seleccionado">
+      <div class="panel-head">
+        <h2 id="rankingTitle">Ranking · Departamento</h2>
+        <span class="hint">Ordenado por favorabilidad</span>
+        <button class="btn-download" id="btnDownloadRanking" type="button">⬇ Descargar PDF</button>
+      </div>
+      <div class="table-wrap">
+        <table class="rank-table" id="rankTable">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Participación</th>
+              <th>Favorabilidad</th>
+            </tr>
+          </thead>
+          <tbody id="rankTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Detalle por pregunta">
+    <div class="panel-head">
+      <h2>Detalle por pregunta (general)</h2>
+      <span class="hint">Ordenado de menor a mayor favorabilidad · datos generales, sin segmentar</span>
+      <button class="btn-download" id="btnDownloadQuestions" type="button">⬇ Descargar PDF</button>
+    </div>
+    <div class="qfilter">
+      <input type="text" id="questionSearch" class="value-search" placeholder="Buscar pregunta o dimensión...">
+    </div>
+    <div class="table-wrap">
+      <table class="rank-table questions-table" id="questionsTable">
+        <thead>
+          <tr>
+            <th>Dimensión</th>
+            <th>Pregunta</th>
+            <th>Favorabilidad</th>
+            <th>Comentarios</th>
+          </tr>
+        </thead>
+        <tbody id="questionsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Comentarios de la encuesta">
+    <div class="panel-head">
+      <h2>Comentarios</h2>
+      <span class="hint">Respuestas abiertas de los colaboradores, tal como fueron escritas y sin datos personales.</span>
+      <button class="btn-download" id="btnDownloadComments" type="button">⬇ Descargar PDF</button>
+    </div>
+    <div id="commentsBlocks"></div>
+  </section>
+
+  <footer class="page-footer">
+    <p id="footerAnonimatoNote">Se listan todos los cortes de segmentación, pero los resultados de favorabilidad se muestran únicamente para grupos con 5 o más respuestas ("Sin datos" en los demás), para proteger el anonimato de las personas encuestadas. Favorabilidad (verde) = % de respuestas "de acuerdo" o "totalmente de acuerdo" (top-2-box); Negativo (rojo) = % de respuestas "en desacuerdo" o "totalmente en desacuerdo" (bottom-2-box); Neutral (amarillo) = el resto de las respuestas.</p>
+    <p>Universo del reporte: colaboradores invitados, activos y con segmentación de Antigüedad asignada al momento del lanzamiento de la encuesta (379 de 386 invitados totales).</p>
+    <p class="footer-credit">Preparado por Humand CX · Datos extraídos de Redash el <span id="generatedAt"></span>.</p>
+  </footer>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
