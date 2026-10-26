@@ -5,7 +5,9 @@
   var COMMENTS = null;
   var state = {
     dimType: 'General',
-    dimValues: []
+    dimValues: [],
+    dim2Type: null,
+    dim2Values: []
   };
 
   var fmtInt = function (n) { return (n === null || n === undefined) ? '—' : n.toLocaleString('es-AR'); };
@@ -86,6 +88,7 @@
       chip.addEventListener('click', function () {
         state.dimType = d;
         state.dimValues = [];
+        if (state.dim2Type === d || d === 'General') { state.dim2Type = null; state.dim2Values = []; }
         onFilterChange();
       });
       box.appendChild(chip);
@@ -200,7 +203,10 @@
 
   function aggregateEntries(entries, label) {
     if (!entries.length) return null;
-    if (entries.length === 1) return entries[0];
+    if (entries.length === 1) {
+      var only = entries[0];
+      return Object.assign({}, only, { excludedGroups: only.favorabilidad_total === null ? 1 : 0 });
+    }
     var asignados = 0, respondieron = 0, nUsers = 0;
     entries.forEach(function (e) {
       var p = e.participacion || {};
@@ -264,14 +270,104 @@
     }
   }
 
+  // ---- Segundo filtro ("Y además por"): cruza dos segmentaciones en todo el reporte ----
+  var value2Picker = null;
+  var value2PickerDim = null;
+
+  function hasDim2() { return state.dimType !== 'General' && !!state.dim2Type && state.dim2Values.length > 0; }
+
+  function renderValue2Picker() {
+    var row = document.getElementById('value2Row');
+    var select = document.getElementById('dim2Select');
+    var clearBtn = document.getElementById('btnClearFilter2');
+    if (state.dimType === 'General') { row.hidden = true; return; }
+    row.hidden = false;
+
+    select.innerHTML = '';
+    select.appendChild(el('option', { value: '' }, [document.createTextNode('— Elegir —')]));
+    dimList().filter(function (d) { return d !== 'General' && d !== state.dimType; }).forEach(function (d) {
+      select.appendChild(el('option', { value: d }, [document.createTextNode(dimLabel(d))]));
+    });
+    select.value = state.dim2Type || '';
+    select.onchange = function () {
+      state.dim2Type = select.value || null;
+      state.dim2Values = [];
+      onFilterChange();
+    };
+
+    var box = document.getElementById('value2Multi');
+    box.hidden = !state.dim2Type;
+    clearBtn.hidden = !state.dim2Type;
+    if (!state.dim2Type) return;
+    if (!value2Picker) {
+      value2Picker = createMultiSelect(box, function (values) {
+        state.dim2Values = values;
+        onFilterChange();
+      });
+    }
+    if (value2PickerDim !== state.dim2Type) {
+      value2PickerDim = state.dim2Type;
+      value2Picker.setItems((DATA.dimensions[state.dim2Type] || []).map(function (it) {
+        return { value: it.value, meta: fmtPct(it.favorabilidad_total) };
+      }), state.dim2Values);
+    } else {
+      value2Picker.setSelected(state.dim2Values);
+    }
+  }
+
+  var comboIndex = null;
+  function comboKey(dimA, valA, dimB, valB) { return [dimA, valA, dimB, valB].join('\u0001'); }
+
+  function findCombo(dimA, valA, dimB, valB) {
+    if (!comboIndex) {
+      comboIndex = {};
+      (DATA.combinations || []).forEach(function (c) {
+        comboIndex[comboKey(c.dimA, c.valA, c.dimB, c.valB)] = c;
+        comboIndex[comboKey(c.dimB, c.valB, c.dimA, c.valA)] = c;
+      });
+    }
+    return comboIndex[comboKey(dimA, valA, dimB, valB)] || null;
+  }
+
+  // Cruces entre los valores de dimA y los de dimB (los cruces sin personas no existen en los datos).
+  function crossEntry(dimA, valsA, dimB, valsB, label) {
+    var combos = [];
+    valsA.forEach(function (va) {
+      valsB.forEach(function (vb) {
+        var c = findCombo(dimA, va, dimB, vb);
+        if (c) combos.push(Object.assign({ value: va + ' × ' + vb }, c));
+      });
+    });
+    return aggregateEntries(combos, label);
+  }
+
+  function selectionLabel() {
+    if (state.dimType === 'General') return 'General';
+    var parts = [];
+    if (state.dimValues.length) parts.push(dimLabel(state.dimType) + ': ' + valuesLabel(state.dimValues));
+    if (hasDim2()) parts.push(dimLabel(state.dim2Type) + ': ' + valuesLabel(state.dim2Values));
+    return parts.join(' · ');
+  }
+
   function currentEntry() {
     if (state.dimType === 'General') return { value: 'Todos', byTopic: DATA.general.byTopic, favorabilidad_total: DATA.general.favorabilidad_total, n_users: DATA.general.n_users, participacion: DATA.general.participacion };
-    if (!state.dimValues.length) return null;
-    return aggregateEntries(entriesFor(state.dimType, state.dimValues), valuesLabel(state.dimValues));
+    var label = selectionLabel();
+    if (state.dimValues.length && hasDim2()) return crossEntry(state.dimType, state.dimValues, state.dim2Type, state.dim2Values, label);
+    if (state.dimValues.length) return aggregateEntries(entriesFor(state.dimType, state.dimValues), label);
+    if (hasDim2()) return aggregateEntries(entriesFor(state.dim2Type, state.dim2Values), label);
+    return null;
+  }
+
+  function noSelectionText() {
+    if (state.dimValues.length && hasDim2()) return 'No hay personas que cumplan los dos filtros a la vez.';
+    return 'Elegí un valor de ' + dimLabel(state.dimType) + ' para ver el detalle por dimensión.';
   }
 
   function excludedNote(entry) {
     if (!entry || !entry.excludedGroups) return '';
+    if (entry.excludedGroups === 1 && !entry.members) {
+      return 'Este grupo tiene menos de ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas: por anonimato no se muestran favorabilidad ni eNPS.';
+    }
     return entry.excludedGroups + (entry.excludedGroups === 1 ? ' de los grupos seleccionados tiene' : ' de los grupos seleccionados tienen') +
       ' menos de ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas: se cuenta' + (entry.excludedGroups === 1 ? '' : 'n') + ' en participación pero no en favorabilidad ni eNPS.';
   }
@@ -286,7 +382,7 @@
     var entry = currentEntry();
     if (!entry) { panel.hidden = true; return; }
     panel.hidden = false;
-    title.textContent = dimLabel(state.dimType) + ': ' + entry.value;
+    title.textContent = selectionLabel();
     var b = band(entry.favorabilidad_total);
     badgeEl.className = 'badge ' + b.cls;
     badgeEl.textContent = b.label;
@@ -316,7 +412,7 @@
     if (note) kpis.appendChild(el('div', { class: 'selection-note', text: note }));
 
     var dlBtn = document.getElementById('btnDownloadPdf');
-    dlBtn.onclick = function () { downloadPdfFor(state.dimType, entry); };
+    dlBtn.onclick = function () { downloadPdfFor(entry); };
   }
 
   function sanitizeFileName(s) {
@@ -432,7 +528,8 @@
     });
   }
 
-  function downloadPdfFor(dimType, entry) {
+  function downloadPdfFor(entry) {
+    var label = selectionLabel();
     var btn = document.getElementById('btnDownloadPdf');
     var b = band(entry.favorabilidad_total);
     var vsGeneral = entry.favorabilidad_total !== null
@@ -440,8 +537,8 @@
       : '';
 
     var root = el('div', { class: 'pdf-export-root' });
-    root.appendChild(pdfHeader(dimLabel(dimType) + ': ' + entry.value));
-    root.appendChild(el('h1', { text: dimLabel(dimType) + ': ' + entry.value }));
+    root.appendChild(pdfHeader(label));
+    root.appendChild(el('h1', { text: label }));
     root.appendChild(el('span', { class: 'badge ' + b.cls, text: b.label }));
     var kpiRow = buildKpiRow(entry);
     kpiRow.appendChild(el('div', { class: 'kpi-card' }, [
@@ -455,14 +552,14 @@
     root.appendChild(barsBox);
     root.appendChild(pdfFooter(excludedNote(entry)));
 
-    runPdfExport(root, btn, 'Reporte_Clima_' + sanitizeFileName(dimType) + '_' + sanitizeFileName(entry.value));
+    runPdfExport(root, btn, 'Reporte_Clima_' + sanitizeFileName(label));
   }
 
   function downloadTopicsPdf() {
     var btn = document.getElementById('btnDownloadTopics');
     var entry = currentEntry();
     if (!entry) { alert('Elegí un valor de segmentación para poder descargar este cuadro, o volvé a General.'); return; }
-    var label = state.dimType === 'General' ? 'General' : (dimLabel(state.dimType) + ': ' + entry.value);
+    var label = selectionLabel();
     var root = el('div', { class: 'pdf-export-root' });
     root.appendChild(pdfHeader('Favorabilidad por dimensión · ' + label));
     root.appendChild(el('h1', { text: 'Favorabilidad por dimensión de clima' }));
@@ -473,26 +570,22 @@
     var barsBox = el('div', { class: 'bars', style: 'margin-top:16px;' });
     barsBox.appendChild(buildBarRows(entry, true));
     root.appendChild(barsBox);
-    root.appendChild(pdfFooter());
-    runPdfExport(root, btn, 'Reporte_Clima_Dimensiones_' + sanitizeFileName(state.dimType) + '_' + sanitizeFileName(entry.value || 'General'));
+    root.appendChild(pdfFooter(excludedNote(entry)));
+    runPdfExport(root, btn, 'Reporte_Clima_Dimensiones_' + sanitizeFileName(label));
   }
 
   function downloadRankingPdf() {
     var btn = document.getElementById('btnDownloadRanking');
-    var dt = state.dimType === 'General' ? 'Departamento' : state.dimType;
-    var list = (DATA.dimensions[dt] || []).slice().sort(function (a, b) {
-      if (a.favorabilidad_total === null) return 1;
-      if (b.favorabilidad_total === null) return -1;
-      return b.favorabilidad_total - a.favorabilidad_total;
-    });
+    var dt = rankDimType();
+    var list = sortByFav(rankList());
     var root = el('div', { class: 'pdf-export-root' });
-    root.appendChild(pdfHeader('Ranking · ' + dimLabel(dt)));
-    root.appendChild(el('h1', { text: 'Ranking · ' + dimLabel(dt) }));
+    root.appendChild(pdfHeader(rankTitle()));
+    root.appendChild(el('h1', { text: rankTitle() }));
     root.appendChild(el('span', { class: 'badge', text: 'Ordenado por favorabilidad', style: 'background:var(--humand-50);color:var(--humand-700);' }));
-    if (state.dimType !== 'General' && state.dimValues.length) {
+    if (state.dimType !== 'General' && (state.dimValues.length || hasDim2())) {
       var selEntry = currentEntry();
       if (selEntry) {
-        root.appendChild(el('div', { class: 'hint', style: 'margin-top:10px;', text: 'Selección actual: ' + dimLabel(state.dimType) + ': ' + selEntry.value }));
+        root.appendChild(el('div', { class: 'hint', style: 'margin-top:10px;', text: 'Selección actual: ' + selectionLabel() }));
         root.appendChild(buildKpiRow(selEntry));
       }
     }
@@ -650,26 +743,49 @@
     var hint = document.getElementById('topicHint');
     box.innerHTML = '';
     var entry = currentEntry();
-    hint.textContent = state.dimType === 'General' ? 'General' : (entry ? dimLabel(state.dimType) + ': ' + entry.value : 'Seleccioná un valor arriba');
+    hint.textContent = entry ? selectionLabel() : 'Seleccioná un valor arriba';
     if (!entry) {
-      box.appendChild(el('div', { class: 'empty-note', text: 'Elegí un valor de ' + dimLabel(state.dimType) + ' para ver el detalle por dimensión.' }));
+      box.appendChild(el('div', { class: 'empty-note', text: noSelectionText() }));
       return;
     }
     box.appendChild(buildBarRows(entry, true));
+    var note = excludedNote(entry);
+    if (note) box.appendChild(el('div', { class: 'selection-note', text: note }));
+  }
+
+  function rankDimType() { return state.dimType === 'General' ? 'Departamento' : state.dimType; }
+
+  function rankTitle() {
+    var t = 'Ranking · ' + dimLabel(rankDimType());
+    if (hasDim2()) t += ' · dentro de ' + dimLabel(state.dim2Type) + ': ' + valuesLabel(state.dim2Values);
+    return t;
+  }
+
+  // Con segundo filtro, cada fila es el cruce de ese valor con los valores del segundo filtro.
+  function rankList() {
+    var dt = rankDimType();
+    var list = DATA.dimensions[dt] || [];
+    if (!hasDim2()) return list;
+    return list.map(function (it) {
+      var e = crossEntry(dt, [it.value], state.dim2Type, state.dim2Values, it.value);
+      return e ? Object.assign(e, { value: it.value }) : null;
+    }).filter(function (e) { return e; });
+  }
+
+  function sortByFav(list) {
+    return list.slice().sort(function (a, b) {
+      if (a.favorabilidad_total === null) return 1;
+      if (b.favorabilidad_total === null) return -1;
+      return b.favorabilidad_total - a.favorabilidad_total;
+    });
   }
 
   function renderRankTable() {
     var title = document.getElementById('rankingTitle');
     var tbody = document.getElementById('rankTableBody');
     tbody.innerHTML = '';
-
-    if (state.dimType === 'General') {
-      title.textContent = 'Ranking · Departamento';
-      renderRankRows(DATA.dimensions['Departamento'] || [], tbody, 'Departamento');
-      return;
-    }
-    title.textContent = 'Ranking · ' + dimLabel(state.dimType);
-    renderRankRows(DATA.dimensions[state.dimType] || [], tbody, state.dimType);
+    title.textContent = rankTitle();
+    renderRankRows(rankList(), tbody, rankDimType());
   }
 
   function buildMiniTrack(negativo, neutral, favorabilidad) {
@@ -682,12 +798,7 @@
   }
 
   function renderRankRows(list, tbody, dimTypeOfList) {
-    var sorted = list.slice().sort(function (a, b) {
-      if (a.favorabilidad_total === null) return 1;
-      if (b.favorabilidad_total === null) return -1;
-      return b.favorabilidad_total - a.favorabilidad_total;
-    });
-    sorted.forEach(function (it) {
+    sortByFav(list).forEach(function (it) {
       var p = it.participacion || {};
       var isSelected = state.dimValues.indexOf(it.value) !== -1;
       var tr = el('tr', { class: isSelected ? 'is-selected' : '', title: isSelected ? 'Clic para quitar de la selección' : 'Clic para sumar a la selección' });
@@ -804,155 +915,10 @@
   function onFilterChange() {
     renderChips();
     renderValuePicker();
+    renderValue2Picker();
     renderSelectionPanel();
     renderTopicBars();
     renderRankTable();
-  }
-
-  // ---- Cruce de segmentaciones (dos dimensiones a la vez, uno o varios valores en cada una) ----
-  var crossState = { dimA: 'Departamento', dimB: 'DIVISION', valsA: [], valsB: [] };
-  var crossPickers = {};
-
-  function crossDimOptions(excludeDim) {
-    return dimList().filter(function (d) { return d !== 'General' && d !== excludeDim; });
-  }
-
-  function findCombo(dimA, valA, dimB, valB) {
-    var list = DATA.combinations || [];
-    for (var i = 0; i < list.length; i++) {
-      var c = list[i];
-      if (c.dimA === dimA && c.valA === valA && c.dimB === dimB && c.valB === valB) return c;
-      if (c.dimA === dimB && c.valA === valB && c.dimB === dimA && c.valB === valA) return c;
-    }
-    return null;
-  }
-
-  function populateCrossValue(which) {
-    var dimKey = which === 'A' ? 'dimA' : 'dimB';
-    var valKey = which === 'A' ? 'valsA' : 'valsB';
-    if (!crossPickers[which]) {
-      crossPickers[which] = createMultiSelect(document.getElementById('crossVal' + which + 'Multi'), function (values) {
-        crossState[valKey] = values;
-        renderCrossResult();
-      });
-    }
-    crossPickers[which].setItems((DATA.dimensions[crossState[dimKey]] || []).map(function (it) {
-      return { value: it.value };
-    }), crossState[valKey]);
-  }
-
-  function renderCrossControls() {
-    var selA = document.getElementById('crossDimA');
-    var selB = document.getElementById('crossDimB');
-    if (!selA || !selB) return;
-
-    selA.innerHTML = '';
-    crossDimOptions(crossState.dimB).forEach(function (d) {
-      selA.appendChild(el('option', { value: d }, [document.createTextNode(dimLabel(d))]));
-    });
-    selA.value = crossState.dimA;
-
-    selB.innerHTML = '';
-    crossDimOptions(crossState.dimA).forEach(function (d) {
-      selB.appendChild(el('option', { value: d }, [document.createTextNode(dimLabel(d))]));
-    });
-    selB.value = crossState.dimB;
-
-    populateCrossValue('A');
-    populateCrossValue('B');
-
-    selA.onchange = function () {
-      crossState.dimA = selA.value;
-      if (crossState.dimA === crossState.dimB) {
-        crossState.dimB = crossDimOptions(crossState.dimA)[0];
-      }
-      crossState.valsA = [];
-      renderCrossControls();
-      renderCrossResult();
-    };
-    selB.onchange = function () {
-      crossState.dimB = selB.value;
-      if (crossState.dimB === crossState.dimA) {
-        crossState.dimA = crossDimOptions(crossState.dimB)[0];
-      }
-      crossState.valsB = [];
-      renderCrossControls();
-      renderCrossResult();
-    };
-  }
-
-  function renderCrossResult() {
-    var box = document.getElementById('crossResult');
-    if (!box) return;
-    box.innerHTML = '';
-    if (!crossState.valsA.length || !crossState.valsB.length) {
-      box.appendChild(el('div', { class: 'empty-note', text: 'Elegí uno o más valores para cada dimensión para ver el cruce.' }));
-      return;
-    }
-    var title = dimLabel(crossState.dimA) + ': ' + valuesLabel(crossState.valsA) + '  ×  ' + dimLabel(crossState.dimB) + ': ' + valuesLabel(crossState.valsB);
-    var combos = [];
-    var pairs = 0;
-    crossState.valsA.forEach(function (va) {
-      crossState.valsB.forEach(function (vb) {
-        pairs++;
-        var c = findCombo(crossState.dimA, va, crossState.dimB, vb);
-        if (c) combos.push(c);
-      });
-    });
-
-    if (!combos.length) {
-      box.appendChild(el('div', { class: 'cross-title', text: title }));
-      box.appendChild(el('div', { class: 'empty-note', text: 'No hay suficientes personas en ' + (pairs === 1 ? 'este cruce específico' : 'estos cruces') + ' para mostrar datos (mínimo ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas), o la combinación no está disponible.' }));
-      return;
-    }
-    var combo = aggregateEntries(combos, title);
-
-    var b = band(combo.favorabilidad_total);
-    var enpsCell = (combo.byTopic && combo.byTopic.eNPS) || {};
-    var enpsVal = enpsCell.favorabilidad !== undefined ? enpsCell.favorabilidad : null;
-    var p = combo.participacion || {};
-
-    box.appendChild(el('div', { class: 'panel-head' }, [
-      el('h3', { class: 'cross-title', text: title }),
-      el('span', { class: 'badge ' + b.cls, text: b.label })
-    ]));
-
-    var kpis = el('div', { class: 'selection-kpis' });
-    kpis.appendChild(el('div', { class: 'kpi-card' }, [
-      el('div', { class: 'kpi-label', text: 'Favorabilidad' }),
-      el('div', { class: 'kpi-value', text: fmtPct(combo.favorabilidad_total) })
-    ]));
-    kpis.appendChild(el('div', { class: 'kpi-card' }, [
-      el('div', { class: 'kpi-label', text: 'eNPS' }),
-      el('div', { class: 'kpi-value', text: enpsVal === null ? '—' : fmtPct(enpsVal) })
-    ]));
-    kpis.appendChild(el('div', { class: 'kpi-card' }, [
-      el('div', { class: 'kpi-label', text: 'Participación' }),
-      el('div', { class: 'kpi-value', text: fmtPct(p.tasa) }),
-      el('div', { class: 'kpi-sub', text: fmtInt(p.respondieron) + ' de ' + fmtInt(p.asignados) + ' invitados' })
-    ]));
-    kpis.appendChild(el('div', { class: 'kpi-card' }, [
-      el('div', { class: 'kpi-label', text: 'Respuestas analizadas' }),
-      el('div', { class: 'kpi-value', text: fmtInt(combo.n_users) })
-    ]));
-    box.appendChild(kpis);
-    if (combos.length < pairs) {
-      var missing = pairs - combos.length;
-      box.appendChild(el('div', { class: 'selection-note', text: missing + ' de ' + pairs + ' combinaciones no tienen datos (menos de ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas o sin personas) y no se incluyen en el resultado.' }));
-    }
-
-    box.appendChild(buildSegTrack({
-      favorabilidad: combo.favorabilidad_total,
-      negativo: combo.negativo_total,
-      neutral: combo.neutral_total
-    }, false));
-
-    var entryA = aggregateEntries(entriesFor(crossState.dimA, crossState.valsA), '');
-    var entryB = aggregateEntries(entriesFor(crossState.dimB, crossState.valsB), '');
-    var compareBox = el('div', { class: 'cross-compare' });
-    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimA) + ' "' + valuesLabel(crossState.valsA) + '" sola (todas las combinaciones): ' + fmtPct(entryA ? entryA.favorabilidad_total : null) }));
-    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimB) + ' "' + valuesLabel(crossState.valsB) + '" sola (todas las combinaciones): ' + fmtPct(entryB ? entryB.favorabilidad_total : null) }));
-    box.appendChild(compareBox);
   }
 
   function init(data) {
@@ -965,7 +931,10 @@
       footerNote.textContent = footerNote.textContent.replace(/con \d+ o más respuestas/, 'con ' + (data.meta.anonimato_minimo || 3) + ' o más respuestas');
     }
     document.getElementById('btnClearFilter').addEventListener('click', function () {
-      state.dimType = 'General'; state.dimValues = []; onFilterChange();
+      state.dimType = 'General'; state.dimValues = []; state.dim2Type = null; state.dim2Values = []; onFilterChange();
+    });
+    document.getElementById('btnClearFilter2').addEventListener('click', function () {
+      state.dim2Type = null; state.dim2Values = []; onFilterChange();
     });
     document.getElementById('questionSearch').addEventListener('input', function (e) {
       renderQuestions(e.target.value);
@@ -978,8 +947,6 @@
     onFilterChange();
     renderQuestions('');
     renderComentarios();
-    renderCrossControls();
-    renderCrossResult();
   }
 
   Promise.all([
