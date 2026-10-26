@@ -39,10 +39,7 @@
     </div>
     <div class="filters-row" id="valueRow" hidden>
       <span class="filters-label" id="valueLabel">Valor:</span>
-      <div class="value-picker">
-        <input type="text" id="valueSearch" class="value-search" placeholder="Buscar..." autocomplete="off">
-        <select id="valueSelect" class="value-select" size="1"></select>
-      </div>
+      <div class="multi-select" id="valueMulti"></div>
       <button class="btn-clear" id="btnClearFilter" type="button">Ver todos / Volver a General</button>
     </div>
   </section>
@@ -59,24 +56,18 @@
   <section class="panel cross-panel" aria-label="Cruce de segmentaciones">
     <div class="panel-head">
       <h2>Cruce de segmentaciones</h2>
-      <span class="hint">Elegí dos dimensiones para ver favorabilidad, eNPS y participación combinadas para ese grupo específico</span>
+      <span class="hint">Elegí dos dimensiones y uno o varios valores en cada una para ver favorabilidad, eNPS y participación combinadas</span>
     </div>
     <div class="cross-controls">
       <div class="cross-dim">
         <span class="filters-label">Dimensión A:</span>
         <select id="crossDimA" class="value-select"></select>
-        <div class="value-picker">
-          <input type="text" id="crossValASearch" class="value-search" placeholder="Buscar valor..." autocomplete="off">
-          <select id="crossValA" class="value-select"></select>
-        </div>
+        <div class="multi-select" id="crossValAMulti"></div>
       </div>
       <div class="cross-dim">
         <span class="filters-label">Dimensión B:</span>
         <select id="crossDimB" class="value-select"></select>
-        <div class="value-picker">
-          <input type="text" id="crossValBSearch" class="value-search" placeholder="Buscar valor..." autocomplete="off">
-          <select id="crossValB" class="value-select"></select>
-        </div>
+        <div class="multi-select" id="crossValBMulti"></div>
       </div>
     </div>
     <div id="crossResult" class="cross-result"></div>
@@ -95,7 +86,7 @@
     <div class="panel" aria-label="Ranking dentro del filtro seleccionado">
       <div class="panel-head">
         <h2 id="rankingTitle">Ranking · Departamento</h2>
-        <span class="hint">Ordenado por favorabilidad</span>
+        <span class="hint">Ordenado por favorabilidad · clic en una fila para sumarla o quitarla de la selección</span>
         <button class="btn-download" id="btnDownloadRanking" type="button">⬇ Descargar PDF</button>
       </div>
       <div class="table-wrap">

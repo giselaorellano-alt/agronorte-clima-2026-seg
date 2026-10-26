@@ -5,7 +5,7 @@
   var COMMENTS = null;
   var state = {
     dimType: 'General',
-    dimValue: null
+    dimValues: []
   };
 
   var fmtInt = function (n) { return (n === null || n === undefined) ? '—' : n.toLocaleString('es-AR'); };
@@ -85,17 +85,161 @@
       var chip = el('button', { class: 'chip', type: 'button', role: 'tab', 'aria-selected': String(d === state.dimType) }, [document.createTextNode(dimLabel(d))]);
       chip.addEventListener('click', function () {
         state.dimType = d;
-        state.dimValue = null;
+        state.dimValues = [];
         onFilterChange();
       });
       box.appendChild(chip);
     });
   }
 
+  // ---- Selector múltiple (checkboxes con buscador) ----
+  var openMultiSelect = null;
+  document.addEventListener('click', function (e) {
+    if (openMultiSelect && !openMultiSelect.root.contains(e.target)) openMultiSelect.close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && openMultiSelect) openMultiSelect.close();
+  });
+
+  function createMultiSelect(root, onChange) {
+    var items = [];
+    var selected = [];
+    root.innerHTML = '';
+    var toggle = el('button', { class: 'ms-toggle', type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' });
+    var summary = el('span', { class: 'ms-summary' });
+    toggle.appendChild(summary);
+    toggle.appendChild(el('span', { class: 'ms-caret', text: '▾', 'aria-hidden': 'true' }));
+    var panel = el('div', { class: 'ms-panel', hidden: 'hidden' });
+    var search = el('input', { type: 'text', class: 'value-search ms-search', placeholder: 'Buscar...', autocomplete: 'off' });
+    var btnAll = el('button', { class: 'ms-action', type: 'button', text: 'Seleccionar todos' });
+    var btnNone = el('button', { class: 'ms-action', type: 'button', text: 'Limpiar' });
+    var list = el('div', { class: 'ms-list', role: 'listbox', 'aria-multiselectable': 'true' });
+    panel.appendChild(search);
+    panel.appendChild(el('div', { class: 'ms-actions' }, [btnAll, btnNone]));
+    panel.appendChild(list);
+    root.appendChild(toggle);
+    root.appendChild(panel);
+
+    var api = {
+      root: root,
+      setItems: function (newItems, newSelected) { items = newItems; selected = (newSelected || []).slice(); search.value = ''; renderList(); renderSummary(); },
+      setSelected: function (newSelected) { selected = (newSelected || []).slice(); renderList(); renderSummary(); },
+      close: function () { panel.hidden = true; toggle.setAttribute('aria-expanded', 'false'); if (openMultiSelect === api) openMultiSelect = null; }
+    };
+
+    function renderSummary() {
+      if (!selected.length) summary.textContent = '— Seleccionar (' + items.length + ') —';
+      else if (selected.length === 1) summary.textContent = selected[0];
+      else summary.textContent = selected.length + ' seleccionados';
+      toggle.title = selected.join(', ');
+      root.classList.toggle('has-value', selected.length > 0);
+    }
+
+    function visibleItems() {
+      var ft = search.value.toLowerCase();
+      return items.filter(function (it) { return !ft || it.value.toLowerCase().indexOf(ft) !== -1; });
+    }
+
+    function renderList() {
+      list.innerHTML = '';
+      var vis = visibleItems();
+      if (!vis.length) { list.appendChild(el('div', { class: 'ms-empty', text: 'Sin resultados' })); return; }
+      vis.forEach(function (it) {
+        var cb = el('input', { type: 'checkbox' });
+        cb.checked = selected.indexOf(it.value) !== -1;
+        cb.addEventListener('change', function () {
+          if (cb.checked) { if (selected.indexOf(it.value) === -1) selected.push(it.value); }
+          else selected = selected.filter(function (v) { return v !== it.value; });
+          renderSummary();
+          onChange(selected.slice());
+        });
+        var opt = el('label', { class: 'ms-option' }, [cb, el('span', { class: 'ms-option-text', text: it.value })]);
+        if (it.meta) opt.appendChild(el('span', { class: 'ms-option-meta', text: it.meta }));
+        list.appendChild(opt);
+      });
+    }
+
+    toggle.addEventListener('click', function () {
+      var willOpen = panel.hidden;
+      if (openMultiSelect && openMultiSelect !== api) openMultiSelect.close();
+      panel.hidden = !willOpen;
+      toggle.setAttribute('aria-expanded', String(willOpen));
+      openMultiSelect = willOpen ? api : null;
+      if (willOpen) search.focus();
+    });
+    search.addEventListener('input', renderList);
+    btnAll.addEventListener('click', function () {
+      visibleItems().forEach(function (it) { if (selected.indexOf(it.value) === -1) selected.push(it.value); });
+      renderList(); renderSummary(); onChange(selected.slice());
+    });
+    btnNone.addEventListener('click', function () {
+      selected = [];
+      renderList(); renderSummary(); onChange([]);
+    });
+    return api;
+  }
+
+  // Combina varios grupos disjuntos de una misma segmentación en uno solo.
+  // Favorabilidad/negativo/neutral se promedian ponderando por cantidad de respuestas
+  // (sumando todos los grupos de una segmentación se reproduce exactamente el total general).
+  // Los grupos bajo el mínimo de anonimato no tienen favorabilidad: cuentan en participación pero no en el promedio.
+  function round1(n) { return Math.round(n * 10) / 10; }
+
+  function weightedCell(cells, favKey, negKey, neuKey) {
+    var ok = cells.filter(function (c) { return c && c[favKey] !== null && c[favKey] !== undefined && c.n_users; });
+    if (!ok.length) return null;
+    var n = 0, fav = 0, neg = 0, neu = 0;
+    ok.forEach(function (c) {
+      n += c.n_users;
+      fav += c[favKey] * c.n_users;
+      neg += (c[negKey] || 0) * c.n_users;
+      neu += (c[neuKey] || 0) * c.n_users;
+    });
+    return { favorabilidad: round1(fav / n), negativo: round1(neg / n), neutral: round1(neu / n), n_users: n, groups: ok.length };
+  }
+
+  function aggregateEntries(entries, label) {
+    if (!entries.length) return null;
+    if (entries.length === 1) return entries[0];
+    var asignados = 0, respondieron = 0, nUsers = 0;
+    entries.forEach(function (e) {
+      var p = e.participacion || {};
+      asignados += p.asignados || 0;
+      respondieron += p.respondieron || 0;
+      nUsers += e.n_users || 0;
+    });
+    var total = weightedCell(entries, 'favorabilidad_total', 'negativo_total', 'neutral_total');
+    var topicKeys = {};
+    entries.forEach(function (e) { Object.keys(e.byTopic || {}).forEach(function (k) { topicKeys[k] = true; }); });
+    var byTopic = {};
+    Object.keys(topicKeys).forEach(function (t) {
+      var cell = weightedCell(entries.map(function (e) { return (e.byTopic || {})[t]; }), 'favorabilidad', 'negativo', 'neutral');
+      if (cell) byTopic[t] = cell;
+    });
+    return {
+      value: label,
+      members: entries.map(function (e) { return e.value; }),
+      favorabilidad_total: total ? total.favorabilidad : null,
+      negativo_total: total ? total.negativo : null,
+      neutral_total: total ? total.neutral : null,
+      n_users: nUsers,
+      excludedGroups: entries.length - (total ? total.groups : 0),
+      participacion: { asignados: asignados, respondieron: respondieron, tasa: asignados ? round1(respondieron / asignados * 100) : null },
+      byTopic: byTopic
+    };
+  }
+
+  function entriesFor(dimType, values) {
+    return (DATA.dimensions[dimType] || []).filter(function (it) { return values.indexOf(it.value) !== -1; });
+  }
+
+  function valuesLabel(values) { return values.join(', '); }
+
+  var valuePicker = null;
+  var valuePickerDim = null;
+
   function renderValuePicker() {
     var row = document.getElementById('valueRow');
-    var select = document.getElementById('valueSelect');
-    var search = document.getElementById('valueSearch');
     var label = document.getElementById('valueLabel');
 
     if (state.dimType === 'General') {
@@ -104,34 +248,32 @@
     }
     row.hidden = false;
     label.textContent = dimLabel(state.dimType) + ':';
-    var items = (DATA.dimensions[state.dimType] || []).slice();
-
-    function populate(filterText) {
-      select.innerHTML = '';
-      var placeholder = el('option', { value: '' }, [document.createTextNode('— Seleccionar (' + items.length + ') —')]);
-      select.appendChild(placeholder);
-      items
-        .filter(function (it) { return !filterText || it.value.toLowerCase().indexOf(filterText.toLowerCase()) !== -1; })
-        .forEach(function (it) {
-          var opt = el('option', { value: it.value }, [document.createTextNode(it.value + '  ·  ' + fmtPct(it.favorabilidad_total))]);
-          select.appendChild(opt);
-        });
-      select.value = state.dimValue || '';
+    if (!valuePicker) {
+      valuePicker = createMultiSelect(document.getElementById('valueMulti'), function (values) {
+        state.dimValues = values;
+        onFilterChange();
+      });
     }
-    populate('');
-    search.oninput = function () { populate(search.value); };
-    select.onchange = function () {
-      state.dimValue = select.value || null;
-      onFilterChange();
-    };
+    if (valuePickerDim !== state.dimType) {
+      valuePickerDim = state.dimType;
+      valuePicker.setItems((DATA.dimensions[state.dimType] || []).map(function (it) {
+        return { value: it.value, meta: fmtPct(it.favorabilidad_total) };
+      }), state.dimValues);
+    } else {
+      valuePicker.setSelected(state.dimValues);
+    }
   }
 
   function currentEntry() {
     if (state.dimType === 'General') return { value: 'Todos', byTopic: DATA.general.byTopic, favorabilidad_total: DATA.general.favorabilidad_total, n_users: DATA.general.n_users, participacion: DATA.general.participacion };
-    if (!state.dimValue) return null;
-    var list = DATA.dimensions[state.dimType] || [];
-    for (var i = 0; i < list.length; i++) if (list[i].value === state.dimValue) return list[i];
-    return null;
+    if (!state.dimValues.length) return null;
+    return aggregateEntries(entriesFor(state.dimType, state.dimValues), valuesLabel(state.dimValues));
+  }
+
+  function excludedNote(entry) {
+    if (!entry || !entry.excludedGroups) return '';
+    return entry.excludedGroups + (entry.excludedGroups === 1 ? ' de los grupos seleccionados tiene' : ' de los grupos seleccionados tienen') +
+      ' menos de ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas: se cuenta' + (entry.excludedGroups === 1 ? '' : 'n') + ' en participación pero no en favorabilidad ni eNPS.';
   }
 
   function renderSelectionPanel() {
@@ -154,7 +296,8 @@
     var enps = enpsFor(entry);
     kpis.appendChild(el('div', { class: 'kpi-card' }, [
       el('div', { class: 'kpi-label', text: 'Favorabilidad' }),
-      el('div', { class: 'kpi-value', text: fmtPct(entry.favorabilidad_total) })
+      el('div', { class: 'kpi-value', text: fmtPct(entry.favorabilidad_total) }),
+      entry.members ? el('div', { class: 'kpi-sub', text: entry.members.length + ' grupos combinados' }) : null
     ]));
     kpis.appendChild(el('div', { class: 'kpi-card' }, [
       el('div', { class: 'kpi-label', text: 'eNPS' }),
@@ -167,8 +310,10 @@
     ]));
     kpis.appendChild(el('div', { class: 'kpi-card' }, [
       el('div', { class: 'kpi-label', text: 'vs. General' }),
-      el('div', { class: 'kpi-value', text: (entry.favorabilidad_total - DATA.general.favorabilidad_total >= 0 ? '+' : '') + (entry.favorabilidad_total !== null ? (entry.favorabilidad_total - DATA.general.favorabilidad_total).toFixed(1).replace('.', ',') + ' pp' : '—') })
+      el('div', { class: 'kpi-value', text: entry.favorabilidad_total !== null ? (entry.favorabilidad_total - DATA.general.favorabilidad_total >= 0 ? '+' : '') + (entry.favorabilidad_total - DATA.general.favorabilidad_total).toFixed(1).replace('.', ',') + ' pp' : '—' })
     ]));
+    var note = excludedNote(entry);
+    if (note) kpis.appendChild(el('div', { class: 'selection-note', text: note }));
 
     var dlBtn = document.getElementById('btnDownloadPdf');
     dlBtn.onclick = function () { downloadPdfFor(state.dimType, entry); };
@@ -178,7 +323,8 @@
     return String(s)
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/[^a-zA-Z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 80);
   }
 
   function pdfHeader(subtitle) {
@@ -307,7 +453,7 @@
     var barsBox = el('div', { class: 'bars' });
     barsBox.appendChild(buildBarRows(entry, true));
     root.appendChild(barsBox);
-    root.appendChild(pdfFooter());
+    root.appendChild(pdfFooter(excludedNote(entry)));
 
     runPdfExport(root, btn, 'Reporte_Clima_' + sanitizeFileName(dimType) + '_' + sanitizeFileName(entry.value));
   }
@@ -343,7 +489,7 @@
     root.appendChild(pdfHeader('Ranking · ' + dimLabel(dt)));
     root.appendChild(el('h1', { text: 'Ranking · ' + dimLabel(dt) }));
     root.appendChild(el('span', { class: 'badge', text: 'Ordenado por favorabilidad', style: 'background:var(--humand-50);color:var(--humand-700);' }));
-    if (state.dimType !== 'General' && state.dimValue) {
+    if (state.dimType !== 'General' && state.dimValues.length) {
       var selEntry = currentEntry();
       if (selEntry) {
         root.appendChild(el('div', { class: 'hint', style: 'margin-top:10px;', text: 'Selección actual: ' + dimLabel(state.dimType) + ': ' + selEntry.value }));
@@ -519,11 +665,11 @@
 
     if (state.dimType === 'General') {
       title.textContent = 'Ranking · Departamento';
-      renderRankRows(DATA.dimensions['Departamento'] || [], tbody);
+      renderRankRows(DATA.dimensions['Departamento'] || [], tbody, 'Departamento');
       return;
     }
     title.textContent = 'Ranking · ' + dimLabel(state.dimType);
-    renderRankRows(DATA.dimensions[state.dimType] || [], tbody);
+    renderRankRows(DATA.dimensions[state.dimType] || [], tbody, state.dimType);
   }
 
   function buildMiniTrack(negativo, neutral, favorabilidad) {
@@ -535,7 +681,7 @@
     return mtrack;
   }
 
-  function renderRankRows(list, tbody) {
+  function renderRankRows(list, tbody, dimTypeOfList) {
     var sorted = list.slice().sort(function (a, b) {
       if (a.favorabilidad_total === null) return 1;
       if (b.favorabilidad_total === null) return -1;
@@ -543,7 +689,8 @@
     });
     sorted.forEach(function (it) {
       var p = it.participacion || {};
-      var tr = el('tr');
+      var isSelected = state.dimValues.indexOf(it.value) !== -1;
+      var tr = el('tr', { class: isSelected ? 'is-selected' : '', title: isSelected ? 'Clic para quitar de la selección' : 'Clic para sumar a la selección' });
       tr.appendChild(el('td', { text: it.value }));
       tr.appendChild(el('td', { text: fmtPct(p.tasa) + ' (' + fmtInt(p.respondieron) + '/' + fmtInt(p.asignados) + ')' }));
       var favTd = el('td');
@@ -553,9 +700,10 @@
       favTd.appendChild(favCell);
       tr.appendChild(favTd);
       tr.addEventListener('click', function () {
-        state.dimValue = it.value;
+        if (state.dimType === 'General') { state.dimType = dimTypeOfList; state.dimValues = []; }
+        if (state.dimValues.indexOf(it.value) === -1) state.dimValues = state.dimValues.concat([it.value]);
+        else state.dimValues = state.dimValues.filter(function (v) { return v !== it.value; });
         onFilterChange();
-        document.getElementById('selectionPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
       tbody.appendChild(tr);
     });
@@ -661,8 +809,9 @@
     renderRankTable();
   }
 
-  // ---- Cruce de segmentaciones (dos dimensiones a la vez) ----
-  var crossState = { dimA: 'Departamento', dimB: 'DIVISION', valA: null, valB: null };
+  // ---- Cruce de segmentaciones (dos dimensiones a la vez, uno o varios valores en cada una) ----
+  var crossState = { dimA: 'Departamento', dimB: 'DIVISION', valsA: [], valsB: [] };
+  var crossPickers = {};
 
   function crossDimOptions(excludeDim) {
     return dimList().filter(function (d) { return d !== 'General' && d !== excludeDim; });
@@ -680,28 +829,16 @@
 
   function populateCrossValue(which) {
     var dimKey = which === 'A' ? 'dimA' : 'dimB';
-    var valKey = which === 'A' ? 'valA' : 'valB';
-    var select = document.getElementById('crossVal' + which);
-    var search = document.getElementById('crossVal' + which + 'Search');
-    var items = (DATA.dimensions[crossState[dimKey]] || []).slice();
-
-    function populate(filterText) {
-      select.innerHTML = '';
-      select.appendChild(el('option', { value: '' }, [document.createTextNode('— Seleccionar (' + items.length + ') —')]));
-      items
-        .filter(function (it) { return !filterText || it.value.toLowerCase().indexOf(filterText.toLowerCase()) !== -1; })
-        .forEach(function (it) {
-          select.appendChild(el('option', { value: it.value }, [document.createTextNode(it.value)]));
-        });
-      select.value = crossState[valKey] || '';
+    var valKey = which === 'A' ? 'valsA' : 'valsB';
+    if (!crossPickers[which]) {
+      crossPickers[which] = createMultiSelect(document.getElementById('crossVal' + which + 'Multi'), function (values) {
+        crossState[valKey] = values;
+        renderCrossResult();
+      });
     }
-    populate('');
-    search.value = '';
-    search.oninput = function () { populate(search.value); };
-    select.onchange = function () {
-      crossState[valKey] = select.value || null;
-      renderCrossResult();
-    };
+    crossPickers[which].setItems((DATA.dimensions[crossState[dimKey]] || []).map(function (it) {
+      return { value: it.value };
+    }), crossState[valKey]);
   }
 
   function renderCrossControls() {
@@ -729,7 +866,7 @@
       if (crossState.dimA === crossState.dimB) {
         crossState.dimB = crossDimOptions(crossState.dimA)[0];
       }
-      crossState.valA = null;
+      crossState.valsA = [];
       renderCrossControls();
       renderCrossResult();
     };
@@ -738,7 +875,7 @@
       if (crossState.dimB === crossState.dimA) {
         crossState.dimA = crossDimOptions(crossState.dimB)[0];
       }
-      crossState.valB = null;
+      crossState.valsB = [];
       renderCrossControls();
       renderCrossResult();
     };
@@ -748,18 +885,27 @@
     var box = document.getElementById('crossResult');
     if (!box) return;
     box.innerHTML = '';
-    if (!crossState.valA || !crossState.valB) {
-      box.appendChild(el('div', { class: 'empty-note', text: 'Elegí un valor para cada dimensión para ver el cruce.' }));
+    if (!crossState.valsA.length || !crossState.valsB.length) {
+      box.appendChild(el('div', { class: 'empty-note', text: 'Elegí uno o más valores para cada dimensión para ver el cruce.' }));
       return;
     }
-    var title = dimLabel(crossState.dimA) + ': ' + crossState.valA + '  ×  ' + dimLabel(crossState.dimB) + ': ' + crossState.valB;
-    var combo = findCombo(crossState.dimA, crossState.valA, crossState.dimB, crossState.valB);
+    var title = dimLabel(crossState.dimA) + ': ' + valuesLabel(crossState.valsA) + '  ×  ' + dimLabel(crossState.dimB) + ': ' + valuesLabel(crossState.valsB);
+    var combos = [];
+    var pairs = 0;
+    crossState.valsA.forEach(function (va) {
+      crossState.valsB.forEach(function (vb) {
+        pairs++;
+        var c = findCombo(crossState.dimA, va, crossState.dimB, vb);
+        if (c) combos.push(c);
+      });
+    });
 
-    if (!combo) {
+    if (!combos.length) {
       box.appendChild(el('div', { class: 'cross-title', text: title }));
-      box.appendChild(el('div', { class: 'empty-note', text: 'No hay suficientes personas en este cruce específico para mostrar datos (mínimo ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas), o la combinación no está disponible.' }));
+      box.appendChild(el('div', { class: 'empty-note', text: 'No hay suficientes personas en ' + (pairs === 1 ? 'este cruce específico' : 'estos cruces') + ' para mostrar datos (mínimo ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas), o la combinación no está disponible.' }));
       return;
     }
+    var combo = aggregateEntries(combos, title);
 
     var b = band(combo.favorabilidad_total);
     var enpsCell = (combo.byTopic && combo.byTopic.eNPS) || {};
@@ -790,6 +936,10 @@
       el('div', { class: 'kpi-value', text: fmtInt(combo.n_users) })
     ]));
     box.appendChild(kpis);
+    if (combos.length < pairs) {
+      var missing = pairs - combos.length;
+      box.appendChild(el('div', { class: 'selection-note', text: missing + ' de ' + pairs + ' combinaciones no tienen datos (menos de ' + (DATA.meta.anonimato_minimo || 5) + ' respuestas o sin personas) y no se incluyen en el resultado.' }));
+    }
 
     box.appendChild(buildSegTrack({
       favorabilidad: combo.favorabilidad_total,
@@ -797,11 +947,11 @@
       neutral: combo.neutral_total
     }, false));
 
-    var entryA = (DATA.dimensions[crossState.dimA] || []).filter(function (it) { return it.value === crossState.valA; })[0];
-    var entryB = (DATA.dimensions[crossState.dimB] || []).filter(function (it) { return it.value === crossState.valB; })[0];
+    var entryA = aggregateEntries(entriesFor(crossState.dimA, crossState.valsA), '');
+    var entryB = aggregateEntries(entriesFor(crossState.dimB, crossState.valsB), '');
     var compareBox = el('div', { class: 'cross-compare' });
-    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimA) + ' "' + crossState.valA + '" sola (todas las combinaciones): ' + fmtPct(entryA ? entryA.favorabilidad_total : null) }));
-    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimB) + ' "' + crossState.valB + '" sola (todas las combinaciones): ' + fmtPct(entryB ? entryB.favorabilidad_total : null) }));
+    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimA) + ' "' + valuesLabel(crossState.valsA) + '" sola (todas las combinaciones): ' + fmtPct(entryA ? entryA.favorabilidad_total : null) }));
+    compareBox.appendChild(el('div', { class: 'hint', text: dimLabel(crossState.dimB) + ' "' + valuesLabel(crossState.valsB) + '" sola (todas las combinaciones): ' + fmtPct(entryB ? entryB.favorabilidad_total : null) }));
     box.appendChild(compareBox);
   }
 
@@ -815,7 +965,7 @@
       footerNote.textContent = footerNote.textContent.replace(/con \d+ o más respuestas/, 'con ' + (data.meta.anonimato_minimo || 3) + ' o más respuestas');
     }
     document.getElementById('btnClearFilter').addEventListener('click', function () {
-      state.dimType = 'General'; state.dimValue = null; onFilterChange();
+      state.dimType = 'General'; state.dimValues = []; onFilterChange();
     });
     document.getElementById('questionSearch').addEventListener('input', function (e) {
       renderQuestions(e.target.value);
