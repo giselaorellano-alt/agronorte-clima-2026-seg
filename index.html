@@ -42,6 +42,12 @@
       <div class="multi-select" id="valueMulti"></div>
       <button class="btn-clear" id="btnClearFilter" type="button">Ver todos / Volver a General</button>
     </div>
+    <div class="filters-row" id="value2Row" hidden>
+      <span class="filters-label">Y además por:</span>
+      <select id="dim2Select" class="value-select dim2-select" aria-label="Segunda segmentación"></select>
+      <div class="multi-select" id="value2Multi"></div>
+      <button class="btn-clear" id="btnClearFilter2" type="button" hidden>Quitar este filtro</button>
+    </div>
   </section>
 
   <section class="panel" id="selectionPanel" aria-label="Resultado de la selección" hidden>
@@ -51,26 +57,6 @@
       <button class="btn-download" id="btnDownloadPdf" type="button">⬇ Descargar PDF</button>
     </div>
     <div class="selection-kpis" id="selectionKpis"></div>
-  </section>
-
-  <section class="panel cross-panel" aria-label="Cruce de segmentaciones">
-    <div class="panel-head">
-      <h2>Cruce de segmentaciones</h2>
-      <span class="hint">Elegí dos dimensiones y uno o varios valores en cada una para ver favorabilidad, eNPS y participación combinadas</span>
-    </div>
-    <div class="cross-controls">
-      <div class="cross-dim">
-        <span class="filters-label">Dimensión A:</span>
-        <select id="crossDimA" class="value-select"></select>
-        <div class="multi-select" id="crossValAMulti"></div>
-      </div>
-      <div class="cross-dim">
-        <span class="filters-label">Dimensión B:</span>
-        <select id="crossDimB" class="value-select"></select>
-        <div class="multi-select" id="crossValBMulti"></div>
-      </div>
-    </div>
-    <div id="crossResult" class="cross-result"></div>
   </section>
 
   <section class="grid-2col">

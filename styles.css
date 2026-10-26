@@ -201,9 +201,9 @@ h1, h2, h3 { font-weight: 600; margin: 0; color: var(--text-default); }
 .ms-option input { accent-color: var(--humand-500); margin: 0; flex: 0 0 auto; }
 .ms-option-text { flex: 1; min-width: 0; }
 .ms-option-meta { color: var(--text-lighter); font-size: 12px; }
+.dim2-select { flex: 0 0 160px; max-width: 160px; }
 .ms-empty { color: var(--text-lighter); font-size: 13px; padding: 8px 4px; }
 .selection-note { grid-column: 1 / -1; color: var(--text-lighter); font-size: 12px; margin-top: 4px; }
-.cross-result > .selection-note { margin: -8px 0 12px; }
 
 .btn-clear {
   font-family: inherit;
@@ -462,14 +462,6 @@ h1, h2, h3 { font-weight: 600; margin: 0; color: var(--text-default); }
 .footer-credit { color: var(--grey-600); }
 
 .empty-note { color: var(--text-lighter); font-size: 13px; padding: 8px 0; }
-
-.cross-controls { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
-.cross-dim { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1 1 320px; }
-.cross-dim .value-select:first-of-type { flex: 0 0 160px; max-width: 160px; }
-.cross-dim .multi-select { flex: 1 1 240px; }
-.cross-result { min-height: 40px; }
-.cross-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
-.cross-compare { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
 
 @media (max-width: 520px) {
   .bar-row { grid-template-columns: 1fr; gap: 4px; }
